@@ -111,6 +111,9 @@ class Spreadsheet():
         self.sheet.write(self.current_row+2, 3, job_data['work_on_floors'])
         self.sheet.write(self.current_row+3, 3, job_data['date_filed'])
         
+        self.sheet.write(self.current_row, 4, "Initial Cost:", self.style)
+        self.sheet.write(self.current_row, 5, job_data['cost'])
+        
         self.current_row += 4
         
         self.sheet.write(self.current_row, 0, "Required Items:", self.style)
@@ -131,13 +134,15 @@ class Spreadsheet():
 class GetBin():
     def __init__(self, bin_number):
         self.bin_number = bin_number
+        
         self.bis_jobs = self.bis()
-        #now_jobs = self.now()
-        #violations = self.violations()
-        #ecb = self.ecb()
+        self.now_jobs = self.now()
+        self.violations = self.violations()
+        self.ecb = self.ecb()
         
     
     def ecb(self, ):
+        print("Looking up ECB violations for BIN#", self.bin_number)
         url = "https://data.cityofnewyork.us/resource/6bgk-3dad.json"
         payload = {
             
@@ -152,6 +157,7 @@ class GetBin():
     
     
     def violations(self, ):
+        print("Looking up DOB violations for BIN#", self.bin_number)
         url = "https://data.cityofnewyork.us/resource/3h2n-5cm9.json"
         payload = {
             
@@ -165,6 +171,7 @@ class GetBin():
         return r.json()
     
     def now(self, ):
+        print("Looking up DOB Now jobs for BIN#", self.bin_number)
         url = "https://data.cityofnewyork.us/resource/w9ak-ipjd.json"
         payload = {
             
@@ -178,12 +185,25 @@ class GetBin():
         now_jobs = []
         for job in r.json():
             if job['filing_status'] != "LOC Issued":
-                now_jobs.append(job)
+            
+                j = {
+                    "description" : "n/a",
+                    "design_team" : " - ".join([job['applicant_last_name'], job['applicant_license']]),
+                    "filing_rep" : "filing_representative_business_name",
+                    "job_number" : job['job_filing_number'],
+                    "job_status" : job['filing_status'],
+                    "job_type" : job['job_type'],
+                    "work_on_floors" : job['work_on_floor'],
+                    "date_filed" : job['filing_date'],
+                    "cost" : job['initial_cost']
+                }
+            
+                now_jobs.append(j)
         
         return now_jobs
     
     def bis(self, ):
-    
+        print("Looking up DOB BIS jobs for BIN#", self.bin_number)
         url = "https://data.cityofnewyork.us/resource/ic3t-wcy2.json"
         payload = {
             
@@ -198,7 +218,7 @@ class GetBin():
             if job['job_status'] != "X":
                 
                 j = {
-                    "description" : job['job__'],
+                    "description" : job['job_description'],
                     "design_team" : " - ".join([job['applicant_s_last_name'], job['applicant_license__']]),
                     "filing_rep" : "n/a",
                     "job_number" : job['job__'],
@@ -206,6 +226,7 @@ class GetBin():
                     "job_type" : job['job_type'],
                     "work_on_floors" : "n/a",
                     "date_filed" : job['pre__filing_date'],
+                    "cost" : job['initial_cost']
                 }
                 bis_jobs.append(j)
         
@@ -213,10 +234,13 @@ class GetBin():
 
 
 if __name__ == "__main__":
-    bin_num = "1084455"
+    #230 W 36
+    bin_num = "1083622"
 
     j = GetBin(bin_num)
     s = Spreadsheet(bin_num)
     
+    for job in j.now_jobs:
+        s.Job(job)
     for job in j.bis_jobs:
         s.Job(job)
