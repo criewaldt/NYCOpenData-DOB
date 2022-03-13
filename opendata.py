@@ -8,9 +8,9 @@ APP_TOKEN = "jRFBgbNXCPdumKaN1BYKLd0kK"
 def pprint(json_item):
     print(json.dumps(json_item, indent=4))
     
-
 class Spreadsheet():
-    def __init__(self, bin_number):
+    def __init__(self, bin_number, address):
+        self.address = address
     
         self.timestr = time.strftime("%Y-%m-%d-%H-%M")
     
@@ -27,7 +27,8 @@ class Spreadsheet():
         style.font = font
         self.style = style
         
-        
+    def Save(self,):
+        self.book.save("output/BIN-{}_{}_{}.xls".format(str(self.bin_number), self.address, self.timestr))
     
     def Seperator(self,):
         pattern = xlwt.Pattern() # Create the Pattern
@@ -40,7 +41,7 @@ class Spreadsheet():
             self.sheet.write(self.current_row, col, '', style)
         self.current_row += 1
         
-        self.book.save("output/{}_{}.xls".format(str(self.bin_number), self.timestr))
+        self.Save()
     
     def DOBViolations(self, violation_data):
         self.sheet.write(self.current_row, 0, "Open DOB Violations", self.style)
@@ -61,9 +62,9 @@ class Spreadsheet():
         
         self.Seperator()
         
-        self.book.save("output/{}_{}.xls".format(self.bin_number, self.timestr))
+        self.Save()
 
-    def ECB(self, violation_data):
+    def ECBViolations(self, violation_data):
         
         self.sheet.write(self.current_row, 0, "Open ECB Violations", self.style)
         self.current_row += 1
@@ -73,17 +74,17 @@ class Spreadsheet():
         self.sheet.write(self.current_row, 2, "Violation Status:", self.style)
 
         self.current_row += 1
-        for violation in violation_data:
-            self.sheet.write(self.current_row, 0, violation['number'])
-            self.sheet.write(self.current_row, 1, violation['date'])
-            self.sheet.write(self.current_row, 2, violation['status'])
+        for v in violation_data:
+            self.sheet.write(self.current_row, 0, v['number'])
+            self.sheet.write(self.current_row, 1, v['date'])
+            self.sheet.write(self.current_row, 2, v['status'])
             self.current_row += 1
             
         self.current_row += 1
         
         self.Seperator()
         
-        self.book.save("output/{}_{}.xls".format(self.bin_number, self.timestr))
+        self.Save()
         
     
     
@@ -111,8 +112,10 @@ class Spreadsheet():
         self.sheet.write(self.current_row+2, 3, job_data['work_on_floors'])
         self.sheet.write(self.current_row+3, 3, job_data['date_filed'])
         
+        """
         self.sheet.write(self.current_row, 4, "Initial Cost:", self.style)
         self.sheet.write(self.current_row, 5, job_data['cost'])
+        """
         
         self.current_row += 4
         
@@ -120,19 +123,25 @@ class Spreadsheet():
         self.current_row += 1
         
         #required items
-        """
-        for item in job_data['required_items']:
-            self.sheet.write(self.current_row, 1, item)
-            self.current_row += 1
+        try:
+            for item in job_data['required_items']:
+                self.sheet.write(self.current_row, 1, item)
+                self.current_row += 1
+        except KeyError:
+            pass
+        
+        
+        
         self.current_row += 1
-        """
+        
         
         self.Seperator()
         
-        self.book.save("output/{}_{}.xls".format(self.bin_number, self.timestr))
+        self.Save()
 
 class GetBin():
     def __init__(self, bin_number):
+        self.address = None
         self.bin_number = bin_number
         
         self.bis_jobs = self.bis()
@@ -153,7 +162,18 @@ class GetBin():
             
         #return active ECB violations
         r = requests.get(url, params=payload)
-        return r.json()
+        
+        ecb = []
+        for v in r.json():
+            e = {
+                "number" : v['ecb_violation_number'],
+                "status" : v['ecb_violation_status'],
+                "description" : v['violation_description'],
+                "date" : v['issue_date']
+            }
+            ecb.append(e)
+        
+        return ecb
     
     
     def violations(self, ):
@@ -168,7 +188,27 @@ class GetBin():
             
         #return active DOB violations
         r = requests.get(url, params=payload)
-        return r.json()
+        
+        violations = []
+        
+        for v in r.json():
+        
+            try:
+                description = v['disposition_comments']
+            except KeyError:
+                print('...no disposition comments found for violation#', v['violation_number'])
+                description = "n/a"
+        
+            e = {
+                "number" : v['violation_number'],
+                "status" : v['violation_category'],
+                "description" : description,
+                "date" : v['issue_date']
+            }
+            violations.append(e)
+        
+        return violations
+        
     
     def now(self, ):
         print("Looking up DOB Now jobs for BIN#", self.bin_number)
@@ -184,18 +224,39 @@ class GetBin():
         
         now_jobs = []
         for job in r.json():
+            if not self.address:
+                self.address = " ".join([job['house__'], job['street_name']])
+                print("..got the address, its:", self.address)
             if job['filing_status'] != "LOC Issued":
+                
+                try:
+                    sia = [item.strip() for item in job['specialinspectionrequirement'].split(',')]
+                except KeyError:
+                    sia = []
+                    
+                try:
+                    pia = [item.strip() for item in job['progressinspectionrequirement'].split(',')]
+                except KeyError:
+                    pia = []
+                    
+                
+                try:
+                    filing_rep = job['filing_representative_business_name']
+                except KeyError:
+                    print('...no filing rep. found for job#', job['job_filing_number'])
+                    filing_rep = 'n/a'
             
                 j = {
                     "description" : "n/a",
                     "design_team" : " - ".join([job['applicant_last_name'], job['applicant_license']]),
-                    "filing_rep" : "filing_representative_business_name",
+                    "filing_rep" : filing_rep,
                     "job_number" : job['job_filing_number'],
                     "job_status" : job['filing_status'],
                     "job_type" : job['job_type'],
                     "work_on_floors" : job['work_on_floor'],
                     "date_filed" : job['filing_date'],
-                    "cost" : job['initial_cost']
+                    "cost" : job['initial_cost'],
+                    "required_items" : sia + pia
                 }
             
                 now_jobs.append(j)
@@ -215,11 +276,30 @@ class GetBin():
         #only return jobs that are not signed off
         bis_jobs = []
         for job in r.json():
+            if not self.address:
+                self.address = " ".join([job['house__'], job['street_name']])
+                print("..got the address, its:", self.address)
             if job['job_status'] != "X":
                 
+                
+                
+                
+                try:
+                    description = job['job_description']
+                except KeyError:
+                    print('...no job description found for job#', job['job__'])
+                    description = "n/a"
+                    
+                try:
+                    design_team = " - ".join([job['applicant_s_last_name'], job['applicant_license__']])
+                except KeyError:
+                    print('...no design team found for job#', job['job__'])
+                    design_team = 'n/a'
+                
+                
                 j = {
-                    "description" : job['job_description'],
-                    "design_team" : " - ".join([job['applicant_s_last_name'], job['applicant_license__']]),
+                    "description" : description,
+                    "design_team" : design_team,
                     "filing_rep" : "n/a",
                     "job_number" : job['job__'],
                     "job_status" : " - ".join([job['job_status'], job['job_status_descrp']]),
@@ -234,13 +314,17 @@ class GetBin():
 
 
 if __name__ == "__main__":
-    #230 W 36
-    bin_num = "1083622"
+    #get bin info
+    bin_num = input("Input BIN# to grab:")
 
     j = GetBin(bin_num)
-    s = Spreadsheet(bin_num)
-    
+    s = Spreadsheet(bin_num, j.address)
+
     for job in j.now_jobs:
         s.Job(job)
     for job in j.bis_jobs:
         s.Job(job)
+    
+    
+    s.DOBViolations(j.violations)
+    s.ECBViolations(j.ecb)
