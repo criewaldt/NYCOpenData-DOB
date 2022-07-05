@@ -1,2 +1,2 @@
 # NYCOpenData-DOB
-App to programmatically retrieve data from NYC DOB via Open Data initiative  
+Package to grab data from NYC OpenData endpoints 
