@@ -1,2 +1,2 @@
 # NYCOpenData-DOB
-Package to grab data from NYC OpenData endpoints 
+Grab NYC DOB Data from OpenData endpoints
